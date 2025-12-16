@@ -40,6 +40,10 @@ class Node:
         self.leader_id = None
         self.last_heartbeat = 0
 
+        self.in_election = False   # hinzugefügt Eletion state avoid getting stuck
+        self.last_election_start = 0.0 # hinzugefügt
+
+
         self._stop = threading.Event()
 
         # TCP servers
@@ -153,6 +157,16 @@ class Node:
                         self.neighbor = new_neighbor
                         self.left = new_left
                         print(f"Node {self.id} neighbors updated: left={self.left} right={self.neighbor}")
+
+                        # --- NEW: if leader is unknown after a topology change, (re)start election ---
+                        if self.leader_id is None and self.neighbor is not None: # ab hier hinzugefügt bis time sleep
+                            now2 = time.time()
+                            # cooldown avoids spamming elections every second
+                            if (not self.in_election) and (now2 - self.last_election_start > 2.0):
+                                self.in_election = True
+                                self.last_election_start = now2
+                                print(f"Node {self.id} no leader after neighbor update -> starting election")
+                                self.start_election()
             time.sleep(1.0)
 
     def _connect_to_neighbor(self):
@@ -260,6 +274,7 @@ class Node:
         if eid == self.id:
             # I'm leader
             self.leader_id = self.id
+            self.in_election = False
             print(f"Node {self.id} became leader")
             # announce
             self._send_ring_message(f"LEADER {self.id}")
@@ -272,6 +287,7 @@ class Node:
 
     def _on_leader_msg(self, lid):
         self.leader_id = lid
+        self.in_election = False 
         self.last_heartbeat = time.time()
         # forward if not originated by us
         if lid != self.id:

@@ -63,32 +63,70 @@ def try_connect(nodes):
             continue
     return None
 
+def connect_to_leader_loop():
+    """
+    Keep discovering and trying to connect until a leader accepts.
+    Returns a connected socket.
+    """
+    while True:
+        nodes = discover(timeout=2.0)
+        if nodes:
+            s = try_connect(nodes)
+            if s:
+                return s
+        print("No leader reachable yet. Retrying...")
+        time.sleep(1.0)
+
 
 def main():
-    print('Discovering nodes...')
-    nodes = discover()
-    if not nodes:
-        print('No nodes discovered')
-        return
-    print('Known nodes:', nodes)
-    s = try_connect(nodes)
-    if not s:
-        print('Could not find leader to connect to')
-        return
+    print('Discovering nodes / connecting to leader...')
+    s = connect_to_leader_loop()
     print('Connected to leader. Type messages and press Enter.')
 
+    disconnected = threading.Event()
+
     def recv_loop(sock):
-        f = sock.makefile('r')
-        for line in f:
-            print(line.rstrip('\n'))
+        try:
+            f = sock.makefile('r')
+            for line in f:
+                if not line:
+                    break
+                print(line.rstrip('\n'))
+        except Exception:
+            pass
+        finally:
+            disconnected.set()
+            try:
+                sock.close()
+            except Exception:
+                pass
 
     threading.Thread(target=recv_loop, args=(s,), daemon=True).start()
+
     try:
         while True:
             line = input()
-            s.sendall((line + '\n').encode())
+
+            # If connection died, reconnect automatically
+            if disconnected.is_set():
+                print("Disconnected from leader. Reconnecting...")
+                disconnected.clear()
+                s = connect_to_leader_loop()
+                print("Reconnected to new leader.")
+                threading.Thread(target=recv_loop, args=(s,), daemon=True).start()
+
+            try:
+                s.sendall((line + '\n').encode())
+            except (BrokenPipeError, ConnectionResetError, OSError):
+                print("Send failed (leader likely down). Reconnecting...")
+                disconnected.set()
+                continue
+
     except (KeyboardInterrupt, EOFError):
-        s.close()
+        try:
+            s.close()
+        except Exception:
+            pass
 
 
 if __name__ == '__main__':

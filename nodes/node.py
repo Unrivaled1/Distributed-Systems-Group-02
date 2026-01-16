@@ -39,9 +39,9 @@ def get_local_ip():
 
 
 class Node:
-    def __init__(self, node_id=None):
+    def __init__(self, node_id=None, host=None):
         self.id = node_id if node_id is not None else random.randint(1, 10000)
-        self.local_ip = get_local_ip()
+        self.local_ip = host if host else get_local_ip()
         self.known = {}  # id -> (host, ring_port, client_port, last_seen)
         self.known[self.id] = (self.local_ip, None, None, time.time())
         self.ring_port = None
@@ -333,8 +333,9 @@ class Node:
 def main():
     p = argparse.ArgumentParser()
     p.add_argument('--id', type=int, help='Optional node id (integer)')
+    p.add_argument('--host', type=str, help='Optional IP address to bind to (use this if on multiple networks)')
     args = p.parse_args()
-    node = Node(node_id=args.id)
+    node = Node(node_id=args.id, host=args.host)
     try:
         node.start()
         # run until ctrl-c

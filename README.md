@@ -28,6 +28,8 @@ The system is designed for **clarity and correctness** rather than performance, 
 
 ## Quick Start
 
+### Single Machine (Demo)
+
 Open **four terminals** on the same machine and run:
 
 **Terminal 1 – Node 101:**
@@ -48,7 +50,7 @@ python3 nodes/node.py --id 330
 Each node will print:
 ```
 Node 101 listening: ring_port=45019 client_port=38769
-Node 101 neighbors updated: left=(330, '127.0.0.1', 43849) right=(205, '127.0.0.1', 36233)
+Node 101 neighbors updated: left=(330, '192.168.1.10', 43849) right=(205, '192.168.1.10', 36233)
 Node 101 received ring msg: ELECTION 330
 ```
 
@@ -62,7 +64,6 @@ python3 nodes/chat_client.py
 Output:
 ```
 Discovering nodes...
-Known nodes: {101: ('127.0.0.1', 38769), 205: ('127.0.0.1', 34885), 330: ('127.0.0.1', 41545)}
 Connected to leader. Type messages and press Enter.
 ```
 
@@ -71,6 +72,24 @@ Type messages and press Enter. The leader broadcasts them to all connected clien
 hello world
 [330] hello world
 ```
+
+### Multiple Machines
+
+The system now supports running on **separate computers** on the same network:
+
+1. **Ensure network connectivity**: All nodes must be on the same LAN and able to reach the multicast address `224.1.1.1:50000`.
+
+2. **Start nodes on different machines**:
+   - Machine A (192.168.1.10): `python3 nodes/node.py --id 101`
+   - Machine B (192.168.1.20): `python3 nodes/node.py --id 205`
+   - Machine C (192.168.1.30): `python3 nodes/node.py --id 330`
+
+3. **Run chat client on any machine** that can reach the network:
+   ```bash
+   python3 nodes/chat_client.py
+   ```
+
+The client automatically discovers all nodes via multicast and connects to the elected leader, regardless of which machine it's on. Messages broadcast correctly across all machines.
 
 ## Debug Output
 
@@ -91,11 +110,11 @@ This verbose output helps you understand the algorithm's flow; it can be reduced
 
 ## Constraints & Design Decisions
 
-- **Single machine only** — all communication uses localhost for simplicity.
+- **LAN only** — requires UDP multicast support (224.1.1.1:50000). Works on single machine and across any LAN.
 - **Python + sockets** — no external dependencies; standard library only.
 - **Clarity over performance** — straightforward threading and blocking I/O.
 - **LCR algorithm** — proven leader election for ring topologies; guarantees exactly one leader when stable.
-- **Heartbeat timeout = 6s, interval = 2s** — tuned for demonstration on a single machine.
+- **Heartbeat timeout = 6s, interval = 2s** — tuned for LAN networks; adjust for higher latency.
 
 ## Extension Ideas
 

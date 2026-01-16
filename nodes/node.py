@@ -26,11 +26,24 @@ HEARTBEAT_INTERVAL = 2.0
 HEARTBEAT_TIMEOUT = 6.0
 
 
+def get_local_ip():
+    """Detect local IP address by connecting to a non-routable multicast address."""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect((MCAST_GRP, MCAST_PORT))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return '127.0.0.1'
+
+
 class Node:
     def __init__(self, node_id=None):
         self.id = node_id if node_id is not None else random.randint(1, 10000)
-        self.known = {}  # id -> (ring_port, client_port, last_seen)
-        self.known[self.id] = (None, None, time.time())
+        self.local_ip = get_local_ip()
+        self.known = {}  # id -> (host, ring_port, client_port, last_seen)
+        self.known[self.id] = (self.local_ip, None, None, time.time())
         self.ring_port = None
         self.client_port = None
 
@@ -83,7 +96,7 @@ class Node:
         # ring server: used to talk to neighbor nodes
         rs = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         rs.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        rs.bind(('127.0.0.1', 0))
+        rs.bind(('0.0.0.0', 0))
         rs.listen()
         self.ring_port = rs.getsockname()[1]
         self._ring_server_sock = rs
@@ -91,13 +104,13 @@ class Node:
         # client server: only leader accepts
         cs = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         cs.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        cs.bind(('127.0.0.1', 0))
+        cs.bind(('0.0.0.0', 0))
         cs.listen()
         self.client_port = cs.getsockname()[1]
         self._client_server_sock = cs
 
-        # register our actual ports in known table for correct ring formation
-        self.known[self.id] = (self.ring_port, self.client_port, time.time())
+        # register our actual ports and IP in known table for correct ring formation
+        self.known[self.id] = (self.local_ip, self.ring_port, self.client_port, time.time())
         print(f"Node {self.id} listening: ring_port={self.ring_port} client_port={self.client_port}")
 
     def _discovery_sender(self):
@@ -105,7 +118,7 @@ class Node:
         # set TTL so multicast stays local
         sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 2)
         while not self._stop.is_set():
-            msg = f"HELLO {self.id} {self.ring_port} {self.client_port}"
+            msg = f"HELLO {self.id} {self.local_ip} {self.ring_port} {self.client_port}"
             sock.sendto(msg.encode(), (MCAST_GRP, MCAST_PORT))
             time.sleep(HELLO_INTERVAL)
 
@@ -121,12 +134,13 @@ class Node:
             except OSError:
                 break
             s = data.decode().strip().split()
-            if len(s) >= 4 and s[0] == 'HELLO':
+            if len(s) >= 5 and s[0] == 'HELLO':
                 nid = int(s[1])
-                ring_p = int(s[2])
-                client_p = int(s[3])
-                # record last seen and port
-                self.known[nid] = (ring_p, client_p, time.time())
+                host = s[2]
+                ring_p = int(s[3])
+                client_p = int(s[4])
+                # record last seen, host, and ports
+                self.known[nid] = (host, ring_p, client_p, time.time())
 
     def _ring_maintainer(self):
         # periodically trim stale nodes and recompute ring neighbors
@@ -144,14 +158,14 @@ class Node:
                     i = ids.index(self.id)
                     right = ids[(i + 1) % len(ids)]
                     left = ids[(i - 1) % len(ids)]
-                    rp, cp, _ = self.known[right]
-                    lp, lcp, _ = self.known[left]
-                    # neighbor info: host is localhost
+                    right_host, rp, cp, _ = self.known[right]
+                    left_host, lp, lcp, _ = self.known[left]
+                    # neighbor info: use actual host
                     if rp is not None:
-                        new_neighbor = (right, '127.0.0.1', rp)
+                        new_neighbor = (right, right_host, rp)
                     else:
                         new_neighbor = None
-                    new_left = (left, '127.0.0.1', lp) if lp is not None else None
+                    new_left = (left, left_host, lp) if lp is not None else None
                     # log neighbor changes
                     if new_neighbor != self.neighbor or new_left != self.left:
                         self.neighbor = new_neighbor

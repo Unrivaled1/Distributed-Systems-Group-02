@@ -29,11 +29,12 @@ def discover(timeout=2.0):
         while time.time() - t0 < timeout:
             data, addr = sock.recvfrom(1024)
             parts = data.decode().strip().split()
-            if len(parts) >= 4 and parts[0] == 'HELLO':
+            if len(parts) >= 5 and parts[0] == 'HELLO':
                 nid = int(parts[1])
-                rp = int(parts[2])
-                cp = int(parts[3])
-                nodes[nid] = ('127.0.0.1', cp)
+                host = parts[2]
+                rp = int(parts[3])
+                cp = int(parts[4])
+                nodes[nid] = (host, cp)
     except socket.timeout:
         pass
     return nodes
